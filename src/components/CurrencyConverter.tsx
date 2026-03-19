@@ -1,6 +1,9 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import type { Currency, CurrencyCode } from "../types/currency";
-import { fetchConversion, fetchCurrencies, formatAmount } from "../utils/currency";
+import { fetchCurrencies } from "../api/fetchCurrencies";
+import { getRates } from "../api/getRates";
+import { convertAmount } from "../utils/convertAmount";
+import { formatAmount } from "../utils/formatAmount";
 
 export function CurrencyConverter() {
   const [amount, setAmount] = useState<string>("");
@@ -14,6 +17,12 @@ export function CurrencyConverter() {
   const [date, setDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  const clearConversionResult = () => {
+    setResult(null);
+    setRate(null);
+    setDate(null);
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -32,6 +41,7 @@ export function CurrencyConverter() {
           const first = usd ?? list[0];
           if (first) {
             setFromCurrency(first.code);
+            clearConversionResult();
           }
         }
 
@@ -41,6 +51,7 @@ export function CurrencyConverter() {
           const nextTo = eur ?? fallback;
           if (nextTo) {
             setToCurrency(nextTo.code);
+            clearConversionResult();
           }
         }
       } catch (err) {
@@ -75,6 +86,7 @@ export function CurrencyConverter() {
 
     if (value === "") {
       setAmount("");
+      clearConversionResult();
       return;
     }
 
@@ -82,6 +94,7 @@ export function CurrencyConverter() {
 
     if (match) {
       setAmount(value);
+      clearConversionResult();
     }
   };
 
@@ -110,15 +123,25 @@ export function CurrencyConverter() {
       setIsLoading(true);
       setError(null);
 
-      const conversion = await fetchConversion(
-        parsed,
-        fromCurrency,
-        toCurrency,
-      );
+      const res = await getRates({
+        amount: parsed,
+        from: fromCurrency,
+        to: toCurrency,
+      });
 
-      setResult(conversion.rate);
-      setRate(conversion.rate / conversion.amount);
-      setDate(conversion.date);
+      const convertedAmount = res.rates[toCurrency];
+      if (convertedAmount == null) {
+        throw new Error(`Rate for ${toCurrency} not found in Frankfurter response`);
+      }
+
+      const computed = convertAmount({
+        inputAmount: res.amount,
+        convertedAmount,
+      });
+
+      setResult(computed.convertedAmount);
+      setRate(computed.unitRate);
+      setDate(res.date);
     } catch (err) {
       console.error(err);
       setResult(null);
@@ -140,9 +163,7 @@ export function CurrencyConverter() {
   const handleSwap = () => {
     setFromCurrency(toCurrency);
     setToCurrency(fromCurrency);
-    setResult(null);
-    setRate(null);
-    setDate(null);
+    clearConversionResult();
     setError(null);
   };
 
@@ -152,9 +173,7 @@ export function CurrencyConverter() {
     if (nextFrom === toCurrency) {
       setToCurrency(pickDifferentCurrency(nextFrom, fromCurrency));
     }
-    setResult(null);
-    setRate(null);
-    setDate(null);
+    clearConversionResult();
     setError(null);
   };
 
@@ -164,9 +183,7 @@ export function CurrencyConverter() {
     if (nextTo === fromCurrency) {
       setFromCurrency(pickDifferentCurrency(nextTo, toCurrency));
     }
-    setResult(null);
-    setRate(null);
-    setDate(null);
+    clearConversionResult();
     setError(null);
   };
 
@@ -214,8 +231,11 @@ export function CurrencyConverter() {
 
         <div className="currency-row">
           <div className="currency-column">
-            <span className="field-label">From</span>
+            <label className="field-label" htmlFor="from-currency">
+              From
+            </label>
             <select
+              id="from-currency"
               className="currency-select"
               value={fromCurrency}
               onChange={(event) => handleFromChange(event.target.value)}
@@ -228,9 +248,7 @@ export function CurrencyConverter() {
               )}
               {currencies.map((currency) => (
                 <option key={currency.code} value={currency.code} disabled={currency.code === toCurrency}>
-                  <span className="currency-option-label">
-                    {currency.flag ? `${currency.flag} ${currency.code}` : currency.code}
-                  </span>
+                  {currency.flag ? `${currency.flag} ${currency.code}` : currency.code}
                 </option>
               ))}
             </select>
@@ -246,8 +264,11 @@ export function CurrencyConverter() {
           </button>
 
           <div className="currency-column">
-            <span className="field-label">To</span>
+            <label className="field-label" htmlFor="to-currency">
+              To
+            </label>
             <select
+              id="to-currency"
               className="currency-select"
               value={toCurrency}
               onChange={(event) => handleToChange(event.target.value)}
@@ -260,9 +281,7 @@ export function CurrencyConverter() {
               )}
               {currencies.map((currency) => (
                 <option key={currency.code} value={currency.code} disabled={currency.code === fromCurrency}>
-                  <span className="currency-option-label">
-                    {currency.flag ? `${currency.flag} ${currency.code}` : currency.code}
-                  </span>
+                  {currency.flag ? `${currency.flag} ${currency.code}` : currency.code}
                 </option>
               ))}
             </select>
@@ -284,7 +303,7 @@ export function CurrencyConverter() {
             </>
           ) : (
             <span className="result-placeholder">
-              Your converted amount will appear here.
+              Click “Get Exchange Rate” to see the result.
             </span>
           )}
         </div>
