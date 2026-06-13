@@ -5,6 +5,48 @@ import { getRates } from "../api/getRates";
 import { convertAmount } from "../utils/convertAmount";
 import { formatAmount } from "../utils/formatAmount";
 
+const HISTORY_STORAGE_KEY = "currency-converter-history";
+const MAX_HISTORY_ENTRIES = 5;
+
+interface ConversionHistoryEntry {
+  id: string;
+  sourceAmount: number;
+  sourceCurrency: CurrencyCode;
+  targetAmount: number;
+  targetCurrency: CurrencyCode;
+  unitRate: number;
+  date: string;
+}
+
+function isHistoryEntry(value: unknown): value is ConversionHistoryEntry {
+  if (typeof value !== "object" || value == null) return false;
+
+  const entry = value as Partial<ConversionHistoryEntry>;
+  return (
+    typeof entry.id === "string" &&
+    typeof entry.sourceAmount === "number" &&
+    typeof entry.sourceCurrency === "string" &&
+    typeof entry.targetAmount === "number" &&
+    typeof entry.targetCurrency === "string" &&
+    typeof entry.unitRate === "number" &&
+    typeof entry.date === "string"
+  );
+}
+
+function loadConversionHistory(): ConversionHistoryEntry[] {
+  try {
+    const saved = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (!saved) return [];
+
+    const parsed: unknown = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter(isHistoryEntry).slice(0, MAX_HISTORY_ENTRIES);
+  } catch {
+    return [];
+  }
+}
+
 export function CurrencyConverter() {
   const [amount, setAmount] = useState<string>("");
   const [fromCurrency, setFromCurrency] = useState<CurrencyCode>("USD");
@@ -17,6 +59,9 @@ export function CurrencyConverter() {
   const [date, setDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [history, setHistory] = useState<ConversionHistoryEntry[]>(
+    loadConversionHistory,
+  );
 
   const clearConversionResult = () => {
     setResult(null);
@@ -71,6 +116,17 @@ export function CurrencyConverter() {
       isMounted = false;
     };
   }, [fromCurrency, toCurrency]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        HISTORY_STORAGE_KEY,
+        JSON.stringify(history.slice(0, MAX_HISTORY_ENTRIES)),
+      );
+    } catch {
+      // Conversion history is helpful, but storage failures should not break conversion.
+    }
+  }, [history]);
 
   const pickDifferentCurrency = (
     exclude: CurrencyCode,
@@ -142,6 +198,18 @@ export function CurrencyConverter() {
       setResult(computed.convertedAmount);
       setRate(computed.unitRate);
       setDate(res.date);
+      setHistory((currentHistory) => [
+        {
+          id: `${Date.now()}-${fromCurrency}-${toCurrency}`,
+          sourceAmount: res.amount,
+          sourceCurrency: fromCurrency,
+          targetAmount: computed.convertedAmount,
+          targetCurrency: toCurrency,
+          unitRate: computed.unitRate,
+          date: res.date,
+        },
+        ...currentHistory,
+      ].slice(0, MAX_HISTORY_ENTRIES));
     } catch (err) {
       console.error(err);
       setResult(null);
@@ -316,6 +384,30 @@ export function CurrencyConverter() {
           {isLoading ? "Getting rate…" : "Get Exchange Rate"}
         </button>
       </form>
+
+      <section className="history-section" aria-labelledby="history-heading">
+        <h2 id="history-heading" className="history-title">
+          Conversion History
+        </h2>
+
+        {history.length > 0 ? (
+          <ul className="history-list">
+            {history.map((entry) => (
+              <li className="history-item" key={entry.id}>
+                <div className="history-main">
+                  {`${formatAmount(entry.sourceAmount)} ${entry.sourceCurrency} = ${formatAmount(entry.targetAmount)} ${entry.targetCurrency}`}
+                </div>
+                <div className="history-meta">
+                  {`1 ${entry.sourceCurrency} = ${formatAmount(entry.unitRate)} ${entry.targetCurrency}`}
+                  {entry.date && ` · ${entry.date}`}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="history-empty">Your recent conversions will appear here.</p>
+        )}
+      </section>
     </div>
   );
 }

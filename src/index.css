@@ -222,8 +222,66 @@ body {
   box-shadow: none;
 }
 
+.history-section {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.history-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #374151;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-item {
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  background-color: #f9fafb;
+}
+
+.history-main {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.history-meta,
+.history-empty {
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+
+.history-meta {
+  margin-top: 0.2rem;
+}
+
+.history-empty {
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px dashed #d1d5db;
+  border-radius: 0.75rem;
+  background-color: #f9fafb;
+}
+
 @media (max-width: 480px) {
   .currency-card {
     padding: 1.75rem 1.25rem 1.5rem;
+  }
+
+  .history-item,
+  .history-empty {
+    padding: 0.7rem 0.75rem;
   }
 }

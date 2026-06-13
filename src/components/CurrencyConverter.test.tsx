@@ -1,6 +1,6 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CURRENCIES_FIXTURE, makeRatesFixture } from "../test/fixtures";
 
@@ -15,8 +15,15 @@ vi.mock("../api/getRates", () => ({
 
 import { CurrencyConverter } from "./CurrencyConverter";
 
+const HISTORY_STORAGE_KEY = "currency-converter-history";
+
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
 afterEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
 });
 
 describe("CurrencyConverter", () => {
@@ -73,8 +80,10 @@ describe("CurrencyConverter", () => {
     await user.click(button);
 
     // Result appears after conversion
-    expect(await screen.findByText(/100(\.00|,00)\sUSD\s=\s92(\.00|,00)\sEUR/)).toBeInTheDocument();
-    expect(screen.getByText(/1\sUSD\s=\s0(\.92|,92)\sEUR/)).toBeInTheDocument();
+    expect(
+      await screen.findAllByText(/100(\.00|,00)\sUSD\s=\s92(\.00|,00)\sEUR/),
+    ).not.toHaveLength(0);
+    expect(screen.getAllByText(/1\sUSD\s=\s0(\.92|,92)\sEUR/)).not.toHaveLength(0);
 
     // Changing amount clears result
     await user.type(amountInput, "1");
@@ -99,5 +108,101 @@ describe("CurrencyConverter", () => {
       await screen.findByText(/unable to perform this conversion right now\./i),
     ).toBeInTheDocument();
   });
-});
 
+  it("adds successful conversions to history", async () => {
+    const user = userEvent.setup();
+    getRatesMock.mockResolvedValue(
+      makeRatesFixture({
+        amount: 25,
+        from: "USD",
+        to: "EUR",
+        convertedAmount: 23,
+        date: "2026-02-25",
+      }),
+    );
+
+    render(<CurrencyConverter />);
+
+    const amountInput = await screen.findByLabelText("Enter Amount");
+    const button = screen.getByRole("button", { name: /get exchange rate/i });
+
+    await user.type(amountInput, "25");
+    await user.click(button);
+
+    const history = screen.getByRole("region", { name: /conversion history/i });
+    expect(
+      await within(history).findByText(/25(\.00|,00)\sUSD\s=\s23(\.00|,00)\sEUR/),
+    ).toBeInTheDocument();
+    expect(
+      within(history).getByText(/1\sUSD\s=\s0(\.92|,92)\sEUR\s·\s2026-02-25/),
+    ).toBeInTheDocument();
+  });
+
+  it("loads persisted conversion history", async () => {
+    window.localStorage.setItem(
+      HISTORY_STORAGE_KEY,
+      JSON.stringify([
+        {
+          id: "saved-entry",
+          sourceAmount: 10,
+          sourceCurrency: "USD",
+          targetAmount: 9.2,
+          targetCurrency: "EUR",
+          unitRate: 0.92,
+          date: "2026-02-25",
+        },
+      ]),
+    );
+
+    render(<CurrencyConverter />);
+
+    const history = screen.getByRole("region", { name: /conversion history/i });
+    expect(
+      within(history).getByText(/10(\.00|,00)\sUSD\s=\s9(\.20|,20)\sEUR/),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps only the five newest history entries", async () => {
+    const user = userEvent.setup();
+    getRatesMock.mockImplementation((args: unknown) => {
+      const { amount, from, to } = args as {
+        amount: number;
+        from: string;
+        to: string;
+      };
+
+      return Promise.resolve(
+        makeRatesFixture({
+          amount,
+          from,
+          to,
+          convertedAmount: amount * 2,
+          date: `2026-02-${String(20 + amount).padStart(2, "0")}`,
+        }),
+      );
+    });
+
+    render(<CurrencyConverter />);
+
+    const amountInput = await screen.findByLabelText("Enter Amount");
+    const button = screen.getByRole("button", { name: /get exchange rate/i });
+
+    for (let amount = 1; amount <= 6; amount += 1) {
+      await user.clear(amountInput);
+      await user.type(amountInput, String(amount));
+      await user.click(button);
+      await waitFor(() => expect(getRatesMock).toHaveBeenCalledTimes(amount));
+    }
+
+    const history = screen.getByRole("region", { name: /conversion history/i });
+    const entries = within(history).getAllByRole("listitem");
+    expect(entries).toHaveLength(5);
+    expect(entries[0]).toHaveTextContent(/6(\.00|,00)\sUSD\s=\s12(\.00|,00)\sEUR/);
+    expect(history).not.toHaveTextContent(/1(\.00|,00)\sUSD\s=\s2(\.00|,00)\sEUR/);
+
+    const savedHistory = JSON.parse(
+      window.localStorage.getItem(HISTORY_STORAGE_KEY) ?? "[]",
+    ) as unknown[];
+    expect(savedHistory).toHaveLength(5);
+  });
+});
